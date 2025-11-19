@@ -4,7 +4,7 @@ Traitement et chunking de documents pour l'indexation
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 

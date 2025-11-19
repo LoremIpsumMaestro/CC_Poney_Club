@@ -611,9 +611,26 @@ class SupabaseClient:
             # 1. Profil utilisateur
             try:
                 profile = self.get_profile(user_id)
+
+                # Récupérer l'email depuis Supabase Auth
+                email = None
+                try:
+                    user_response = self.client.auth.admin.get_user_by_id(str(user_id))
+                    if user_response and hasattr(user_response, 'user') and user_response.user:
+                        email = user_response.user.email
+                except Exception as e:
+                    logger.warning(f"Impossible de récupérer l'email depuis Auth: {e}")
+                    # Fallback : essayer de récupérer depuis la session courante
+                    try:
+                        current_user = self.client.auth.get_user()
+                        if current_user and hasattr(current_user, 'user') and current_user.user:
+                            email = current_user.user.email
+                    except:
+                        pass
+
                 if profile:
                     export_data["profile"] = {
-                        "email": profile.email,
+                        "email": email or "non disponible",
                         "full_name": profile.full_name,
                         "law_firm": profile.law_firm,
                         "role": profile.role,
