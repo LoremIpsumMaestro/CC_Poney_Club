@@ -1,0 +1,49 @@
+[general]
+# Désactiver la collecte de statistiques
+showSidebarNavigation = true
+
+[server]
+# Port par défaut
+port = 8501
+
+# Activer le CORS
+enableCORS = false
+
+# Activer XSRF protection
+enableXsrfProtection = true
+
+# Taille max des uploads (en MB)
+maxUploadSize = 50
+
+# Timeout de session (en secondes) - 7 jours
+# sessionIdleTimeoutMinutes = 10080
+
+[browser]
+# Ouvrir automatiquement le navigateur
+gatherUsageStats = false
+
+[theme]
+# Thème de l'application
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
+[client]
+# Désactiver le menu hamburger par défaut
+showErrorDetails = true
+
+[runner]
+# Éviter de planter sur les erreurs
+fastReruns = true
+
+# Nombre max de messages dans la queue
+maxMessageSize = 200
+
+[logger]
+# Niveau de log
+level = "info"
+
+# Format de log
+messageFormat = "%(asctime)s %(message)s"
