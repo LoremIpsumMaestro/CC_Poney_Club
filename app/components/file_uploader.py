@@ -229,19 +229,21 @@ def render_document_list(user_id: str, show_delete: bool = True):
                             # Confirmation
                             st.warning("Êtes-vous sûr ?")
                             if st.button("Confirmer", key=f"confirm_{doc.id}"):
-                                success = delete_document(user_id, str(doc.id))
+                                success = asyncio.run(delete_document(user_id, str(doc.id)))
                                 if success:
-                                    st.success("Document supprimé")
+                                    st.success("✅ Document complètement supprimé")
                                     st.rerun()
+                                else:
+                                    st.error("❌ Erreur lors de la suppression")
 
     except Exception as e:
         st.error(f"Erreur chargement des documents: {e}")
         logger.error(f"Erreur list documents: {e}")
 
 
-def delete_document(user_id: str, document_id: str) -> bool:
+async def delete_document(user_id: str, document_id: str) -> bool:
     """
-    Supprime un document
+    Supprime un document complètement (DB + vector store + fichier physique)
 
     Args:
         user_id: ID utilisateur
@@ -253,13 +255,57 @@ def delete_document(user_id: str, document_id: str) -> bool:
     try:
         client = get_supabase_client()
 
-        # Supprimer de la base de données
+        # 1. Récupérer les infos du document avant suppression
+        response = (
+            client.client.table("documents")
+            .select("*")
+            .eq("id", document_id)
+            .eq("user_id", user_id)  # Sécurité : vérifier que c'est bien son document
+            .execute()
+        )
+
+        if not response.data or len(response.data) == 0:
+            logger.warning(f"Document non trouvé ou accès refusé: {document_id}")
+            return False
+
+        document = response.data[0]
+        file_path = document.get("file_path")
+        vector_store_id = document.get("vector_store_id")
+        filename = document.get("filename")
+
+        # 2. Supprimer du vector store
+        if vector_store_id:
+            try:
+                vector_store = await get_vector_store()
+
+                # Supprimer de la collection user_documents
+                user_docs_collection = settings.get_user_collection_name(user_id, "documents")
+                vector_store.delete_documents(
+                    collection_name=user_docs_collection,
+                    where={"filename": filename},  # Supprimer tous les chunks de ce fichier
+                )
+                logger.info(f"Document supprimé du vector store: {vector_store_id}")
+            except Exception as e:
+                logger.error(f"Erreur suppression vector store: {e}")
+                # Continuer quand même
+
+        # 3. Supprimer le fichier physique
+        if file_path:
+            try:
+                file_path_obj = Path(file_path)
+                if file_path_obj.exists():
+                    file_path_obj.unlink()
+                    logger.info(f"Fichier physique supprimé: {file_path}")
+            except Exception as e:
+                logger.error(f"Erreur suppression fichier physique: {e}")
+                # Continuer quand même
+
+        # 4. Supprimer de la base de données
         success = client.delete_document(document_id)
 
-        # TODO: Supprimer du vector store
-        # TODO: Supprimer le fichier physique
+        if success:
+            logger.info(f"Document complètement supprimé: {document_id}")
 
-        logger.info(f"Document supprimé: {document_id}")
         return success
 
     except Exception as e:

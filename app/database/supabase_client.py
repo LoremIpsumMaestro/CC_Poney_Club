@@ -316,6 +316,33 @@ class SupabaseClient:
             logger.error(f"Erreur delete_conversation: {e}")
             return False
 
+    def delete_all_user_conversations(self, user_id: UUID) -> int:
+        """
+        Supprime toutes les conversations d'un utilisateur (cascade sur les messages)
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            Nombre de conversations supprimées
+        """
+        try:
+            # Compter avant suppression
+            conversations = self.list_user_conversations(user_id)
+            count = len(conversations)
+
+            # Supprimer toutes les conversations
+            self.client.table("conversations").delete().eq(
+                "user_id", str(user_id)
+            ).execute()
+
+            logger.info(f"{count} conversations supprimées pour user {user_id}")
+            return count
+
+        except Exception as e:
+            logger.error(f"Erreur delete_all_user_conversations: {e}")
+            return 0
+
     # ========================================================================
     # MESSAGES
     # ========================================================================
@@ -564,6 +591,136 @@ class SupabaseClient:
     # ========================================================================
     # RGPD - SUPPRESSION DONNÉES
     # ========================================================================
+
+    def export_user_data(self, user_id: UUID) -> dict:
+        """
+        Export complet des données utilisateur (RGPD - Droit à la portabilité)
+
+        Args:
+            user_id: ID utilisateur
+
+        Returns:
+            Dictionnaire avec toutes les données utilisateur
+        """
+        try:
+            export_data = {
+                "export_date": datetime.utcnow().isoformat(),
+                "user_id": str(user_id),
+            }
+
+            # 1. Profil utilisateur
+            try:
+                profile = self.get_profile(user_id)
+                if profile:
+                    export_data["profile"] = {
+                        "email": profile.email,
+                        "full_name": profile.full_name,
+                        "law_firm": profile.law_firm,
+                        "role": profile.role,
+                        "created_at": profile.created_at.isoformat(),
+                    }
+            except Exception as e:
+                logger.error(f"Erreur export profil: {e}")
+                export_data["profile"] = None
+
+            # 2. Conversations
+            try:
+                conversations = self.list_user_conversations(user_id)
+                export_data["conversations"] = []
+
+                for conv in conversations:
+                    conv_data = {
+                        "id": str(conv.id),
+                        "title": conv.title,
+                        "created_at": conv.created_at.isoformat(),
+                        "updated_at": conv.updated_at.isoformat(),
+                        "messages": [],
+                    }
+
+                    # Récupérer les messages de cette conversation
+                    messages = self.list_conversation_messages(conv.id)
+                    for msg in messages:
+                        conv_data["messages"].append({
+                            "role": msg.role.value,
+                            "content": msg.content,
+                            "sources": msg.sources,
+                            "created_at": msg.created_at.isoformat(),
+                        })
+
+                    export_data["conversations"].append(conv_data)
+
+            except Exception as e:
+                logger.error(f"Erreur export conversations: {e}")
+                export_data["conversations"] = []
+
+            # 3. Documents
+            try:
+                documents = self.list_user_documents(user_id)
+                export_data["documents"] = []
+
+                for doc in documents:
+                    export_data["documents"].append({
+                        "filename": doc.filename,
+                        "file_type": doc.file_type,
+                        "file_size": doc.file_size,
+                        "category": doc.category,
+                        "uploaded_at": doc.uploaded_at.isoformat(),
+                        "indexed_at": doc.indexed_at.isoformat() if doc.indexed_at else None,
+                    })
+
+            except Exception as e:
+                logger.error(f"Erreur export documents: {e}")
+                export_data["documents"] = []
+
+            # 4. Statistiques d'usage
+            try:
+                stats = self.get_user_statistics(user_id)
+                export_data["statistics"] = {
+                    "total_conversations": stats.total_conversations,
+                    "total_messages": stats.total_messages,
+                    "total_documents": stats.total_documents,
+                    "total_queries": stats.total_queries,
+                    "last_activity": stats.last_activity.isoformat() if stats.last_activity else None,
+                }
+
+            except Exception as e:
+                logger.error(f"Erreur export stats: {e}")
+                export_data["statistics"] = None
+
+            # 5. Logs d'activité (derniers 100)
+            try:
+                response = (
+                    self.client.table("usage_logs")
+                    .select("*")
+                    .eq("user_id", str(user_id))
+                    .order("created_at", desc=True)
+                    .limit(100)
+                    .execute()
+                )
+
+                export_data["activity_logs"] = []
+                if response.data:
+                    for log in response.data:
+                        export_data["activity_logs"].append({
+                            "action": log.get("action"),
+                            "metadata": log.get("metadata"),
+                            "created_at": log.get("created_at"),
+                        })
+
+            except Exception as e:
+                logger.error(f"Erreur export logs: {e}")
+                export_data["activity_logs"] = []
+
+            logger.info(f"Export complet généré pour user {user_id}")
+            return export_data
+
+        except Exception as e:
+            logger.error(f"Erreur export_user_data: {e}")
+            return {
+                "error": str(e),
+                "export_date": datetime.utcnow().isoformat(),
+                "user_id": str(user_id),
+            }
 
     def delete_all_user_data(self, user_id: UUID) -> bool:
         """

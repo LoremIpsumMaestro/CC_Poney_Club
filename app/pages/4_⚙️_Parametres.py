@@ -5,6 +5,7 @@ Profil, statistiques, export de données, suppression de compte
 
 import streamlit as st
 from uuid import UUID
+from datetime import datetime
 
 from app.components.auth_guard import (
     require_authentication,
@@ -192,14 +193,45 @@ with tab_privacy:
 
     if st.button("📦 Exporter mes données (JSON)", use_container_width=True):
         try:
-            # TODO: Implémenter l'export complet
-            st.info("🚧 Fonctionnalité d'export en développement")
-            st.markdown("""
-            En attendant, contactez support@coda2z.com pour obtenir
-            une copie de vos données.
-            """)
+            import json
+            from uuid import UUID
+
+            with st.spinner("📦 Génération de l'export..."):
+                # Récupérer toutes les données
+                user_id = UUID(st.session_state.user["id"])
+                export_data = client.export_user_data(user_id)
+
+                # Vérifier s'il y a une erreur
+                if "error" in export_data:
+                    st.error(f"❌ Erreur lors de l'export: {export_data['error']}")
+                else:
+                    # Convertir en JSON formaté
+                    json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
+
+                    # Proposer le téléchargement
+                    st.success("✅ Export généré avec succès !")
+
+                    # Afficher un résumé
+                    st.info(f"""
+                    **Résumé de l'export:**
+                    - Conversations: {len(export_data.get('conversations', []))}
+                    - Messages: {sum(len(c.get('messages', [])) for c in export_data.get('conversations', []))}
+                    - Documents: {len(export_data.get('documents', []))}
+                    - Logs d'activité: {len(export_data.get('activity_logs', []))}
+                    """)
+
+                    # Bouton de téléchargement
+                    st.download_button(
+                        label="⬇️ Télécharger mes données (JSON)",
+                        data=json_str,
+                        file_name=f"coda2z_export_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+
         except Exception as e:
-            st.error(f"Erreur: {e}")
+            st.error(f"❌ Erreur: {e}")
+            logger.error(f"Erreur export données: {e}")
 
     st.divider()
 
@@ -226,26 +258,40 @@ with tab_privacy:
         if delete_history:
             if confirm_text == "SUPPRIMER":
                 try:
-                    # Supprimer de Supabase
-                    # TODO: Implémenter suppression conversations
+                    with st.spinner("🗑️ Suppression en cours..."):
+                        # 1. Supprimer toutes les conversations et messages de Supabase
+                        conversations_deleted = client.delete_all_user_conversations(user_id)
 
-                    # Supprimer du vector store
-                    async def delete_user_history():
-                        vector_store = await get_vector_store()
-                        return vector_store.delete_user_data(user_id)
+                        # 2. Supprimer l'historique du vector store
+                        async def delete_user_history():
+                            vector_store = await get_vector_store()
+                            return vector_store.delete_user_data(user_id)
 
-                    result = asyncio.run(delete_user_history())
+                        result = asyncio.run(delete_user_history())
 
-                    if result.get("history"):
-                        st.success("✅ Historique supprimé avec succès")
-                    else:
-                        st.error("Erreur lors de la suppression")
+                        # Afficher le résultat
+                        if conversations_deleted > 0 or result.get("history"):
+                            st.success(f"""
+                            ✅ **Historique supprimé avec succès**
+
+                            - {conversations_deleted} conversation(s) supprimée(s)
+                            - Historique vector store nettoyé
+                            """)
+
+                            # Nettoyer la session
+                            if "messages" in st.session_state:
+                                st.session_state.messages = []
+                            if "current_conversation_id" in st.session_state:
+                                st.session_state.current_conversation_id = None
+
+                        else:
+                            st.info("ℹ️ Aucun historique à supprimer")
 
                 except Exception as e:
-                    st.error(f"Erreur: {e}")
+                    st.error(f"❌ Erreur: {e}")
                     logger.error(f"Erreur suppression historique: {e}")
             else:
-                st.error("❌ Confirmation incorrecte")
+                st.error("❌ Confirmation incorrecte. Tapez exactement 'SUPPRIMER'")
 
 with tab_advanced:
     st.subheader("⚙️ Paramètres avancés")
