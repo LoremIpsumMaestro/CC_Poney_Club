@@ -1,5 +1,5 @@
 """
-Composant interface de chat réutilisable
+Composant interface de chat réutilisable (OPTIMISÉ avec caching Streamlit)
 """
 
 import streamlit as st
@@ -18,6 +18,32 @@ from app.database.models import (
 from app.utils.logger import logger
 
 
+# OPTIMISATION : Singleton RAG Pipeline avec cache Streamlit
+@st.cache_resource
+def get_cached_rag_pipeline():
+    """
+    Pipeline RAG singleton avec cache Streamlit (OPTIMISÉ)
+    Évite de recréer le pipeline à chaque interaction
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    pipeline = loop.run_until_complete(get_rag_pipeline())
+    logger.info("Pipeline RAG chargé et caché")
+    return pipeline
+
+
+# OPTIMISATION : Singleton Supabase Client avec cache
+@st.cache_resource
+def get_cached_supabase_client():
+    """
+    Client Supabase singleton avec cache (OPTIMISÉ)
+    Réutilise la même connexion au lieu de la recréer
+    """
+    client = get_supabase_client()
+    logger.info("Client Supabase chargé et caché")
+    return client
+
+
 def init_chat_session():
     """Initialise les variables de session pour le chat"""
     if "messages" not in st.session_state:
@@ -29,10 +55,9 @@ def init_chat_session():
 
 
 async def get_or_create_rag_pipeline():
-    """Récupère ou crée le pipeline RAG"""
-    if st.session_state.rag_pipeline is None:
-        st.session_state.rag_pipeline = await get_rag_pipeline()
-    return st.session_state.rag_pipeline
+    """Récupère ou crée le pipeline RAG (OPTIMISÉ - utilise le cache)"""
+    # OPTIMISATION : Utiliser la version cachée au lieu de session_state
+    return get_cached_rag_pipeline()
 
 
 def create_new_conversation(user_id: str, title: str = "Nouvelle conversation"):
@@ -47,7 +72,7 @@ def create_new_conversation(user_id: str, title: str = "Nouvelle conversation"):
         ID de la conversation créée
     """
     try:
-        client = get_supabase_client()
+        client = get_cached_supabase_client()  # OPTIMISÉ
 
         conv_create = ConversationCreate(user_id=user_id, title=title)
         conversation = client.create_conversation(conv_create)
@@ -78,7 +103,7 @@ def save_message_to_db(
         sources: Sources utilisées
     """
     try:
-        client = get_supabase_client()
+        client = get_cached_supabase_client()  # OPTIMISÉ
 
         message_create = MessageCreate(
             conversation_id=conversation_id,

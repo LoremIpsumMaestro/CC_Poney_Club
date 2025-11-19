@@ -1,5 +1,5 @@
 """
-Composant d'upload de fichiers réutilisable
+Composant d'upload de fichiers réutilisable (OPTIMISÉ avec caching)
 """
 
 import streamlit as st
@@ -15,6 +15,17 @@ from app.utils.validators import validate_upload
 from app.utils.security import sanitize_filename
 from app.utils.logger import logger
 from app.config.settings import settings
+
+
+# OPTIMISATION : Cache pour liste documents
+@st.cache_data(ttl=60)  # Cache 1 minute
+def get_user_documents_cached(user_id: str):
+    """
+    Récupère les documents utilisateur avec cache (OPTIMISÉ)
+    Réduit les appels DB redondants
+    """
+    client = get_supabase_client()
+    return client.list_user_documents(user_id)
 
 
 def render_file_uploader(
@@ -193,15 +204,15 @@ async def process_file_upload(
 
 def render_document_list(user_id: str, show_delete: bool = True):
     """
-    Affiche la liste des documents d'un utilisateur
+    Affiche la liste des documents d'un utilisateur (OPTIMISÉ avec cache)
 
     Args:
         user_id: ID utilisateur
         show_delete: Afficher le bouton de suppression
     """
     try:
-        client = get_supabase_client()
-        documents = client.list_user_documents(user_id)
+        # OPTIMISATION : Utiliser la version cachée
+        documents = get_user_documents_cached(user_id)
 
         if not documents:
             st.info("📭 Aucun document uploadé pour le moment")

@@ -243,8 +243,9 @@ class SupabaseClient:
     def list_user_conversations(
         self, user_id: UUID, include_archived: bool = False
     ) -> List[ConversationSummary]:
-        """Liste les conversations d'un utilisateur"""
+        """Liste les conversations d'un utilisateur (OPTIMISÉ - Pas de N+1)"""
         try:
+            # OPTIMISATION : Récupérer conversations
             query = (
                 self.client.table("conversations")
                 .select("id, title, created_at")
@@ -255,20 +256,49 @@ class SupabaseClient:
             if not include_archived:
                 query = query.eq("is_archived", False)
 
-            response = query.execute()
+            conv_response = query.execute()
 
-            # Enrichir avec le nombre de messages
+            if not conv_response.data:
+                return []
+
+            conv_ids = [conv["id"] for conv in conv_response.data]
+
+            # OPTIMISATION : Récupérer TOUS les messages des conversations en 1 seule requête
+            # au lieu d'une requête par conversation (N+1 problem)
+            all_messages_response = (
+                self.client.table("messages")
+                .select("id, conversation_id, created_at")
+                .in_("conversation_id", conv_ids)
+                .order("created_at", desc=False)
+                .execute()
+            )
+
+            # Construire un dict pour O(1) lookup : conv_id -> [messages]
+            messages_by_conv = {}
+            for msg in all_messages_response.data:
+                conv_id = msg["conversation_id"]
+                if conv_id not in messages_by_conv:
+                    messages_by_conv[conv_id] = []
+                messages_by_conv[conv_id].append(msg)
+
+            # Construire les summaries avec les données déjà chargées
             summaries = []
-            for conv in response.data:
-                msg_count = self._count_messages(UUID(conv["id"]))
-                last_msg = self._get_last_message(UUID(conv["id"]))
+            for conv in conv_response.data:
+                conv_id = conv["id"]
+                messages = messages_by_conv.get(conv_id, [])
+
+                # Compter messages
+                msg_count = len(messages)
+
+                # Dernier message (le dernier dans la liste)
+                last_message_at = messages[-1]["created_at"] if messages else None
 
                 summaries.append(
                     ConversationSummary(
-                        id=conv["id"],
+                        id=conv_id,
                         title=conv["title"],
                         message_count=msg_count,
-                        last_message_at=last_msg.created_at if last_msg else None,
+                        last_message_at=last_message_at,
                         created_at=conv["created_at"],
                     )
                 )

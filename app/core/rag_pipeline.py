@@ -145,7 +145,7 @@ class RAGPipeline:
         self, query: str, user_id: str
     ) -> tuple[List[Dict], List[Dict], List[Dict]]:
         """
-        Récupère le contexte depuis les différentes sources
+        Récupère le contexte depuis les différentes sources EN PARALLELE (OPTIMISÉ)
 
         Args:
             query: Requête utilisateur
@@ -154,32 +154,35 @@ class RAGPipeline:
         Returns:
             (law_results, user_docs_results, history_results)
         """
-        # Recherche dans la base de lois (priorité haute)
-        try:
-            law_results = await self.vector_store.query_knowledge_base(
+        # OPTIMISATION : Lancer les 3 recherches en parallèle au lieu de séquentiellement
+        # Gain estimé : 60-70% de réduction du temps de retrieval
+        tasks = [
+            self.vector_store.query_knowledge_base(
                 query_text=query, n_results=self.top_k
-            )
-        except Exception as e:
-            logger.warning(f"Erreur recherche lois: {e}")
-            law_results = []
-
-        # Recherche dans les documents utilisateur (priorité moyenne)
-        try:
-            user_docs_results = await self.vector_store.query_user_documents(
+            ),
+            self.vector_store.query_user_documents(
                 user_id=user_id, query_text=query, n_results=min(3, self.top_k)
-            )
-        except Exception as e:
-            logger.warning(f"Erreur recherche docs user: {e}")
-            user_docs_results = []
-
-        # Recherche dans l'historique (priorité basse, pour contexte)
-        try:
-            history_results = await self.vector_store.query_user_history(
+            ),
+            self.vector_store.query_user_history(
                 user_id=user_id, query_text=query, n_results=2
-            )
-        except Exception as e:
-            logger.warning(f"Erreur recherche historique: {e}")
-            history_results = []
+            ),
+        ]
+
+        # Exécuter en parallèle avec gestion d'erreurs individuelles
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Traiter les résultats et gérer les exceptions
+        law_results = results[0] if not isinstance(results[0], Exception) else []
+        user_docs_results = results[1] if not isinstance(results[1], Exception) else []
+        history_results = results[2] if not isinstance(results[2], Exception) else []
+
+        # Logger les erreurs si nécessaire
+        if isinstance(results[0], Exception):
+            logger.warning(f"Erreur recherche lois: {results[0]}")
+        if isinstance(results[1], Exception):
+            logger.warning(f"Erreur recherche docs user: {results[1]}")
+        if isinstance(results[2], Exception):
+            logger.warning(f"Erreur recherche historique: {results[2]}")
 
         return law_results, user_docs_results, history_results
 
